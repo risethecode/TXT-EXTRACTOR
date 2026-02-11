@@ -20,4 +20,3 @@ async def sumit_boot():
 if __name__ == "__main__":
     loop.run_until_complete(sumit_boot())
 
-asyncio.run(main())
