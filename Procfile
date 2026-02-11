@@ -1,2 +1,1 @@
-web: python -m Extractor
-
+web: python app.py
