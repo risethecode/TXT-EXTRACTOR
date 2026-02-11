@@ -3,17 +3,12 @@ import logging
 from pyrogram import Client
 from config import API_ID, API_HASH, BOT_TOKEN
 
-
-
-loop = asyncio.get_event_loop()
-
 logging.basicConfig(
     format="[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s",
     level=logging.INFO,
 )
 
-
-
+# Create the Client but DON'T start it here
 app = Client(
     ":Extractor:",
     api_id=API_ID,
@@ -23,24 +18,7 @@ app = Client(
     workers=200
 )
 
-
-
-
-
-
-
-
-async def info_bot():
-    global BOT_ID, BOT_NAME, BOT_USERNAME
-    await app.start()
-    getme = await app.get_me()
-    BOT_ID = getme.id
-    BOT_USERNAME = getme.username
-    if getme.last_name:
-        BOT_NAME = getme.first_name + " " + getme.last_name
-    else:
-        BOT_NAME = getme.first_name
-
-
-loop.run_until_complete(info_bot())
-
+# REMOVED: Auto-start code that was causing issues
+# The client should be started in __main__.py only
+# loop = asyncio.get_event_loop()
+# loop.run_until_complete(info_bot())
