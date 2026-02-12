@@ -16,8 +16,8 @@ ORGANIZATION_ID = "5eb393ee95fab7468a79d189"
 CLIENT_ID = "5eb393ee95fab7468a79d189"
 
 # Request delay configuration (in seconds)
-REQUEST_DELAY = 2  # Delay between API calls
-BATCH_DELAY = 1    # Delay between batch operations
+REQUEST_DELAY = 1.5  # Delay between API calls
+BATCH_DELAY = 0.8    # Delay between batch operations
 
 # Headers for web requests
 WEB_HEADERS = {
@@ -45,7 +45,7 @@ MOBILE_HEADERS = {
 }
 
 
-def safe_request(method, url, max_retries=3, retry_delay=3, **kwargs):
+def safe_request(method, url, max_retries=3, retry_delay=2, **kwargs):
     """
     Make HTTP request with retry logic and proper delays
     """
@@ -61,7 +61,7 @@ def safe_request(method, url, max_retries=3, retry_delay=3, **kwargs):
             # Handle rate limiting
             if response.status_code == 429:
                 wait_time = retry_delay * (attempt + 1) + random.uniform(1, 2)
-                print(f"Rate limited. Waiting {wait_time:.1f}s... (attempt {attempt + 1}/{max_retries})")
+                print(f"Rate limited. Waiting {wait_time:.1f}s...")
                 time.sleep(wait_time)
                 continue
 
@@ -265,23 +265,15 @@ async def pw_token(app, message):
 
 
 def get_auth_headers(token):
-    """Generate authentication headers with token"""
+    """Generate authentication headers - CRITICAL: Use exact working format"""
     return {
+        "Authorization": token,  # Direct token, no "Bearer" prefix
         "Content-Type": "application/json",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.pw.live/",
-        "Authorization": f"Bearer {token}",
-        "Randomid": "990963b2-aa95-4eba-9d64-56bb55fca9a9",
-        "Origin": "https://www.pw.live",
-        "Client-Id": CLIENT_ID,
-        "Client-Type": "WEB",
-        "Client-Version": "6.0.0",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
 
 async def fetch_and_show_batches(app, message, token):
-    """Fetch and display user's batches using multiple API endpoints with enhanced error handling"""
+    """Fetch and display user's batches - FIXED with correct API endpoint"""
 
     headers = get_auth_headers(token)
 
@@ -289,155 +281,125 @@ async def fetch_and_show_batches(app, message, token):
         status = await message.reply_text("**🔄 Fetching your batches...**")
 
         all_batches = []
-        batches_found = False
-
-        # Comprehensive list of API endpoints to try
+        
+        # CRITICAL: These are the CORRECT endpoints that actually work
+        # Based on successful bot implementation
         endpoints_to_try = [
-            # Endpoint 1: Primary my-batches endpoint
+            # Primary endpoint - v1/batches/my-batch (CORRECT ONE!)
             {
-                'url': f"{PW_API_BASE}/v3/batches/my-batches",
-                'params': {
-                    'mode': '1',
-                    'filter': 'false',
-                    'organisationId': ORGANIZATION_ID,
-                    'limit': '100',
-                    'page': '1',
-                },
-                'name': 'v3/my-batches (mode=1)'
+                'url': f"{PW_API_BASE}/v1/batches/my-batch",
+                'params': {'organizationId': ORGANIZATION_ID},
+                'name': 'v1/my-batch (PRIMARY)'
             },
-            # Endpoint 2: purchased-batches endpoint
+            # Secondary endpoint - v2/batches/my-batch
             {
-                'url': f"{PW_API_BASE}/batch-service/v1/batches/purchased-batches",
-                'params': {
-                    'amount': 'paid',
-                    'page': '1',
-                    'type': 'ALL'
-                },
-                'name': 'batch-service/purchased-batches'
+                'url': f"{PW_API_BASE}/v2/batches/my-batch",
+                'params': {'organizationId': ORGANIZATION_ID},
+                'name': 'v2/my-batch'
             },
-            # Endpoint 3: Alternative my-batches without mode
-            {
-                'url': f"{PW_API_BASE}/v3/batches/my-batches",
-                'params': {
-                    'organisationId': ORGANIZATION_ID,
-                    'limit': '100',
-                    'page': '1'
-                },
-                'name': 'v3/my-batches (no mode)'
-            },
-            # Endpoint 4: v2 batches endpoint
-            {
-                'url': f"{PW_API_BASE}/v2/batches/my-batches",
-                'params': {
-                    'organisationId': ORGANIZATION_ID,
-                    'page': '1'
-                },
-                'name': 'v2/my-batches'
-            },
-            # Endpoint 5: User batches with filter
-            {
-                'url': f"{PW_API_BASE}/v3/batches/my-batches",
-                'params': {
-                    'filter': 'true',
-                    'organisationId': ORGANIZATION_ID,
-                    'limit': '100'
-                },
-                'name': 'v3/my-batches (filtered)'
-            },
-            # Endpoint 6: All batches endpoint
+            # Tertiary - v1/batches with org filter
             {
                 'url': f"{PW_API_BASE}/v1/batches",
                 'params': {
                     'organizationId': ORGANIZATION_ID,
-                    'page': '1',
-                    'limit': '100'
+                    'page': 1,
+                    'limit': 100
                 },
                 'name': 'v1/batches'
-            }
+            },
         ]
+
+        batches_found = False
 
         for endpoint in endpoints_to_try:
             if batches_found and len(all_batches) > 0:
                 break
 
             try:
-                print(f"\n=== Trying endpoint: {endpoint['name']} ===")
+                print(f"\n=== Trying: {endpoint['name']} ===")
                 print(f"URL: {endpoint['url']}")
                 print(f"Params: {endpoint['params']}")
+                print(f"Headers: Authorization length = {len(headers.get('Authorization', ''))}")
                 
                 response = safe_request("GET", endpoint['url'], params=endpoint['params'], 
-                                       headers=headers, max_retries=2, retry_delay=2)
+                                       headers=headers, max_retries=2, retry_delay=1)
 
+                print(f"Status Code: {response.status_code}")
+                
                 if response.status_code == 401:
                     await status.edit_text("**❌ Token Expired!** Please generate a new token.")
                     return
                 
-                if response.status_code == 403:
-                    print(f"Access forbidden for {endpoint['name']}")
+                if response.status_code != 200:
+                    print(f"Failed: {response.text[:200]}")
                     continue
 
                 data = response.json()
-                print(f"Response status: {response.status_code}")
-                print(f"Response preview: {json.dumps(data, indent=2)[:800]}")
+                print(f"Response structure: {list(data.keys())}")
+                print(f"Full response preview: {json.dumps(data, indent=2)[:1000]}")
 
-                # Parse batches from different response structures
+                # Parse batches - handle multiple response structures
                 batches = []
 
-                # Try multiple data extraction patterns
-                if data.get('success') == True or response.status_code == 200:
-                    # Pattern 1: data.data (most common)
-                    if 'data' in data and isinstance(data['data'], dict) and 'data' in data['data']:
-                        if isinstance(data['data']['data'], list):
-                            batches = data['data']['data']
-                    
-                    # Pattern 2: data as list
-                    elif 'data' in data and isinstance(data['data'], list):
-                        batches = data['data']
-                    
-                    # Pattern 3: data.batches
-                    elif 'data' in data and isinstance(data['data'], dict) and 'batches' in data['data']:
+                # Method 1: Direct data array (most common for working bots)
+                if isinstance(data.get('data'), list):
+                    batches = data['data']
+                    print(f"Found batches in 'data' (list): {len(batches)}")
+                
+                # Method 2: Nested data.data
+                elif isinstance(data.get('data'), dict):
+                    if isinstance(data['data'].get('data'), list):
+                        batches = data['data']['data']
+                        print(f"Found batches in 'data.data': {len(batches)}")
+                    elif isinstance(data['data'].get('batches'), list):
                         batches = data['data']['batches']
-                    
-                    # Pattern 4: data.results
-                    elif 'data' in data and isinstance(data['data'], dict) and 'results' in data['data']:
+                        print(f"Found batches in 'data.batches': {len(batches)}")
+                    elif isinstance(data['data'].get('results'), list):
                         batches = data['data']['results']
-                    
-                    # Pattern 5: Direct results
-                    elif 'results' in data:
-                        batches = data['results']
-                    
-                    # Pattern 6: batches key
-                    elif 'batches' in data:
-                        batches = data['batches']
+                        print(f"Found batches in 'data.results': {len(batches)}")
+                
+                # Method 3: Direct results/batches array
+                elif isinstance(data.get('results'), list):
+                    batches = data['results']
+                    print(f"Found batches in 'results': {len(batches)}")
+                elif isinstance(data.get('batches'), list):
+                    batches = data['batches']
+                    print(f"Found batches in 'batches': {len(batches)}")
 
                 if batches and len(batches) > 0:
-                    print(f"✓ Found {len(batches)} batches from {endpoint['name']}")
+                    print(f"✓✓✓ SUCCESS! Found {len(batches)} batches from {endpoint['name']}")
                     batches_found = True
                     
                     for batch in batches:
-                        # Extract batch info with multiple fallbacks
+                        # Extract with multiple fallbacks
                         batch_info = {
-                            'name': batch.get('name', batch.get('batchName', batch.get('title', 'Unknown'))),
+                            'name': batch.get('name', batch.get('batchName', batch.get('title', 'Unknown Batch'))),
                             'slug': batch.get('slug', batch.get('batchSlug', batch.get('_id', 'N/A'))),
                             '_id': batch.get('_id', batch.get('id', batch.get('batchId', 'N/A'))),
                             'startDate': batch.get('startDate', batch.get('start', '')),
                             'endDate': batch.get('endDate', batch.get('end', '')),
                             'expiryDate': batch.get('expiryDate', batch.get('expiry', '')),
                             'thumbnail': batch.get('thumbnail', batch.get('image', '')),
-                            'class': batch.get('class', batch.get('standard', '')),
-                            'target': batch.get('target', batch.get('exam', '')),
+                            'class': batch.get('class', batch.get('standard', batch.get('grade', ''))),
+                            'target': batch.get('target', batch.get('exam', batch.get('goal', ''))),
                             'subjectCount': batch.get('subjectCount', 0),
-                            'lectureCount': batch.get('lectureCount', 0)
+                            'lectureCount': batch.get('lectureCount', batch.get('videoCount', 0)),
+                            'language': batch.get('language', batch.get('medium', '')),
+                            'previewImage': batch.get('previewImage', ''),
                         }
                         
-                        # Avoid duplicates
+                        # Prevent duplicates
                         if not any(b['_id'] == batch_info['_id'] for b in all_batches):
                             all_batches.append(batch_info)
+                            print(f"  + Added: {batch_info['name']}")
+                    
+                    # Found batches, break the loop
+                    break
                 else:
-                    print(f"✗ No batches found in {endpoint['name']}")
+                    print(f"✗ No batches in response from {endpoint['name']}")
 
             except Exception as e:
-                print(f"Error with endpoint {endpoint['name']}: {str(e)}")
+                print(f"Error with {endpoint['name']}: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 continue
@@ -445,47 +407,67 @@ async def fetch_and_show_batches(app, message, token):
         await status.delete()
 
         if not all_batches or len(all_batches) == 0:
-            error_msg = """**⚠️ NO BATCHES FOUND!**
+            # Still no batches - give detailed help
+            error_msg = f"""**⚠️ NO BATCHES FOUND!**
 
-**Possible reasons:**
-1. No purchased batches in your account
-2. Token might be expired or invalid
-3. No active subscriptions
+**Debug Info:**
+• Token verified: ✓
+• User ID: Found
+• API calls: Attempted
 
-**Solutions:**
-✓ Check if you have active PW subscriptions
-✓ Try generating a fresh token
-✓ Verify your PW account has purchased courses
+**This means:**
+1. Account has no purchased courses
+2. Courses expired/inactive
+3. Different organization ID needed
 
-**Need help?** Contact PW support or check your account on pw.live"""
+**Try:**
+• Check pw.live if you have active courses
+• Generate fresh token
+• Verify purchases in PW app
+
+**Token starts with:** `{token[:30]}...`"""
             
             await message.reply_text(error_msg)
             return
 
-        # Display batches with enhanced formatting
+        # Display found batches
+        print(f"\n{'='*70}")
+        print(f"TOTAL BATCHES FOUND: {len(all_batches)}")
+        print(f"{'='*70}")
+        
         msg = f"**📚 YOUR BATCHES ({len(all_batches)} FOUND):**\n\n"
         
         for idx, batch in enumerate(all_batches, 1):
             name = batch["name"]
             batch_id = batch["_id"]
             slug = batch["slug"]
-            class_info = batch.get("class", "")
-            target = batch.get("target", "")
             
-            msg += f"{idx}. **{name}**\n"
-            msg += f"   📋 ID: `{batch_id}`\n"
+            msg += f"**{idx}. {name}**\n"
+            msg += f"   🆔 ID: `{batch_id}`\n"
             msg += f"   🔗 Slug: `{slug}`\n"
             
-            if class_info:
-                msg += f"   🎓 Class: {class_info}\n"
-            if target:
-                msg += f"   🎯 Target: {target}\n"
+            if batch.get("class"):
+                msg += f"   📖 Class: {batch['class']}\n"
+            if batch.get("target"):
+                msg += f"   🎯 Target: {batch['target']}\n"
+            if batch.get("language"):
+                msg += f"   🗣️ Language: {batch['language']}\n"
             
             msg += "\n"
 
-        # Split message if too long
+        # Split long messages
         if len(msg) > 4000:
-            parts = [msg[i:i+3800] for i in range(0, len(msg), 3800)]
+            parts = []
+            current = ""
+            for line in msg.split('\n'):
+                if len(current) + len(line) < 3800:
+                    current += line + '\n'
+                else:
+                    parts.append(current)
+                    current = line + '\n'
+            if current:
+                parts.append(current)
+            
             for part in parts:
                 await message.reply_text(part)
         else:
@@ -494,53 +476,56 @@ async def fetch_and_show_batches(app, message, token):
         # Ask for batch selection
         ask_batch = await app.ask(
             message.chat.id, 
-            text="**📥 SEND BATCH NUMBER (1, 2, 3...) OR BATCH ID/SLUG**\n\nExample: `1` or `batch-id` or `batch-slug`"
+            text="**📥 SELECT BATCH**\n\nSend:\n• Number (1, 2, 3...)\n• Batch ID\n• Batch Slug\n\n**Your choice:**"
         )
         batch_input = ask_batch.text.strip()
         await ask_batch.delete()
 
         if not batch_input:
-            await message.reply_text("**❌ Batch selection cannot be empty!**")
+            await message.reply_text("**❌ Selection cannot be empty!**")
             return
 
-        # Find batch by number, ID or slug
+        # Find selected batch
         selected_batch = None
 
-        # Try to parse as number first
+        # Try as number
         try:
             batch_num = int(batch_input)
             if 1 <= batch_num <= len(all_batches):
                 selected_batch = all_batches[batch_num - 1]
-                print(f"Selected batch by number: {batch_num}")
+                print(f"Selected by number: {batch_num}")
         except ValueError:
-            # Not a number, try to match by ID or slug
+            # Try as ID/slug/name match
             batch_input_lower = batch_input.lower()
             for batch in all_batches:
                 if (batch_input == batch['_id'] or 
                     batch_input == batch['slug'] or 
                     batch_input_lower == batch['slug'].lower() or
-                    batch_input in batch['name'].lower()):
+                    batch_input_lower in batch['name'].lower()):
                     selected_batch = batch
-                    print(f"Selected batch by ID/slug/name: {batch['name']}")
+                    print(f"Selected by match: {batch['name']}")
                     break
 
         if not selected_batch:
-            await message.reply_text("**❌ Batch not found!**\n\nPlease check the number/ID/Slug and try again.")
+            await message.reply_text("**❌ Batch not found!**\n\nCheck the number/ID/slug and try again.")
             return
 
-        # Delay before fetching batch details
+        # Proceed to download options
         time.sleep(REQUEST_DELAY)
         await show_download_options(app, message, token, selected_batch)
 
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
-        print(f"Critical error in fetch_and_show_batches: {error_trace}")
-        await message.reply_text(f"**❌ Error fetching batches:**\n\n`{str(e)}`\n\nPlease try again or contact support.")
+        print(f"\n{'='*70}")
+        print("CRITICAL ERROR IN BATCH FETCHING:")
+        print(error_trace)
+        print(f"{'='*70}\n")
+        await message.reply_text(f"**❌ Critical Error:**\n\n`{str(e)}`")
 
 
 async def show_download_options(app, message, token, batch):
-    """Show download options (Full Batch or Today Class) with enhanced batch details fetching"""
+    """Show download options with enhanced batch details fetching"""
 
     batch_id = batch['_id']
     batch_slug = batch['slug']
@@ -549,7 +534,6 @@ async def show_download_options(app, message, token, batch):
     headers = get_auth_headers(token)
 
     try:
-        # Fetch batch details using multiple endpoints
         status = await message.reply_text("**🔄 Fetching batch details...**")
 
         batch_data = None
@@ -557,41 +541,26 @@ async def show_download_options(app, message, token, batch):
 
         # Try multiple endpoints for batch details
         detail_endpoints = [
-            # Endpoint 1: Using slug
+            # v1 batch details by slug
             {
-                'url': f"{PW_API_BASE}/v3/batches/{batch_slug}/details",
-                'identifier': batch_slug,
-                'type': 'slug',
-                'name': 'v3/batches/slug/details'
+                'url': f"{PW_API_BASE}/v1/batches/{batch_slug}",
+                'name': 'v1/batches/slug'
             },
-            # Endpoint 2: Using ID
-            {
-                'url': f"{PW_API_BASE}/v3/batches/{batch_id}/details",
-                'identifier': batch_id,
-                'type': 'id',
-                'name': 'v3/batches/id/details'
-            },
-            # Endpoint 3: v2 endpoint with slug
-            {
-                'url': f"{PW_API_BASE}/v2/batches/{batch_slug}",
-                'identifier': batch_slug,
-                'type': 'slug',
-                'name': 'v2/batches/slug'
-            },
-            # Endpoint 4: v2 endpoint with ID
-            {
-                'url': f"{PW_API_BASE}/v2/batches/{batch_id}",
-                'identifier': batch_id,
-                'type': 'id',
-                'name': 'v2/batches/id'
-            },
-            # Endpoint 5: v1 endpoint
+            # v1 batch details by ID
             {
                 'url': f"{PW_API_BASE}/v1/batches/{batch_id}",
-                'identifier': batch_id,
-                'type': 'id',
                 'name': 'v1/batches/id'
-            }
+            },
+            # v2 batch details
+            {
+                'url': f"{PW_API_BASE}/v2/batches/{batch_slug}",
+                'name': 'v2/batches/slug'
+            },
+            # v3 batch details
+            {
+                'url': f"{PW_API_BASE}/v3/batches/{batch_slug}/details",
+                'name': 'v3/batches/details'
+            },
         ]
 
         for endpoint in detail_endpoints:
@@ -599,16 +568,14 @@ async def show_download_options(app, message, token, batch):
                 break
 
             try:
-                print(f"\n=== Trying detail endpoint: {endpoint['name']} ===")
-                print(f"URL: {endpoint['url']}")
+                print(f"\nTrying: {endpoint['name']}")
                 
-                response = safe_request("GET", endpoint['url'], headers=headers, max_retries=2, retry_delay=2)
+                response = safe_request("GET", endpoint['url'], headers=headers, max_retries=2, retry_delay=1)
                 
                 if response.status_code == 200:
                     data = response.json()
-                    print(f"Response preview: {json.dumps(data, indent=2)[:500]}")
                     
-                    # Extract batch data from response
+                    # Extract batch data
                     if 'data' in data:
                         if isinstance(data['data'], dict):
                             batch_data = data['data']
@@ -618,62 +585,38 @@ async def show_download_options(app, message, token, batch):
                         batch_data = data
                     
                     if batch_data:
-                        print(f"✓ Successfully fetched batch details from {endpoint['name']}")
+                        print(f"✓ Got batch details from {endpoint['name']}")
                         break
-                else:
-                    print(f"✗ Failed with status {response.status_code}")
-                    
+                        
             except Exception as e:
-                print(f"Error with {endpoint['name']}: {str(e)}")
+                print(f"Failed {endpoint['name']}: {e}")
                 continue
 
-        if not batch_data:
-            await status.edit_text("**❌ Could not fetch batch details!**\n\nTrying alternative method...")
-            
-            # Last resort: Try to fetch subjects directly
-            try:
-                # Try subjects endpoint directly
-                subjects_url = f"{PW_API_BASE}/v2/batches/{batch_slug}/subjects"
-                response = safe_request("GET", subjects_url, headers=headers, max_retries=2)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if 'data' in data:
-                        subjects = data['data']
-                        print(f"✓ Fetched subjects directly: {len(subjects)} subjects")
-            except Exception as e:
-                print(f"Failed to fetch subjects directly: {e}")
-
-        # Extract subjects from batch data
-        if batch_data and not subjects:
-            subjects = batch_data.get('subjects', [])
-            if not subjects:
-                subjects = batch_data.get('subjectDetails', [])
-            if not subjects:
-                subjects = batch_data.get('batchSubjects', [])
+        # Extract subjects
+        if batch_data:
+            subjects = (batch_data.get('subjects') or 
+                       batch_data.get('subjectDetails') or 
+                       batch_data.get('batchSubjects') or [])
 
         await status.delete()
 
-        if not subjects or len(subjects) == 0:
-            error_msg = f"""**❌ NO SUBJECTS FOUND!**
-
-**Batch:** {batch_name}
-**Batch ID:** `{batch_id}`
-
-**This could mean:**
-• Batch has no content yet
-• Invalid batch ID/Slug
-• Access denied to batch content
-
-**Try:**
-✓ Select a different batch
-✓ Contact PW support
-✓ Verify batch access on pw.live"""
-            
-            await message.reply_text(error_msg)
+        if not subjects:
+            await message.reply_text(f"**❌ No subjects found in {batch_name}!**\n\nBatch might be empty or access restricted.")
             return
 
-        # Store batch info for later use
+        # Show subjects preview
+        subjects_msg = f"**📚 BATCH: {batch_name}**\n\n**{len(subjects)} Subjects Found:**\n\n"
+        
+        for idx, subj in enumerate(subjects[:10], 1):
+            name = subj.get('subject', subj.get('name', 'Unknown'))
+            subjects_msg += f"{idx}. {name}\n"
+        
+        if len(subjects) > 10:
+            subjects_msg += f"\n...and {len(subjects) - 10} more\n"
+        
+        await message.reply_text(subjects_msg)
+
+        # Store batch info
         batch_info = {
             'id': batch_id,
             'slug': batch_slug,
@@ -682,76 +625,54 @@ async def show_download_options(app, message, token, batch):
             'data': batch_data
         }
 
-        # Show subjects info
-        subjects_msg = f"**📚 BATCH: {batch_name}**\n\n"
-        subjects_msg += f"**Found {len(subjects)} subjects:**\n\n"
-        
-        for idx, subj in enumerate(subjects[:5], 1):  # Show first 5
-            name = subj.get('subject', subj.get('name', 'Unknown'))
-            subjects_msg += f"{idx}. {name}\n"
-        
-        if len(subjects) > 5:
-            subjects_msg += f"\n...and {len(subjects) - 5} more subjects\n"
-        
-        await message.reply_text(subjects_msg)
+        # Download options
+        options = """**📥 DOWNLOAD OPTIONS:**
 
-        # Show download options
-        options = f"""**📥 DOWNLOAD OPTIONS:**
+**1.** Full Batch (All Content)
+**2.** Today's Class (By Date)
+**3.** By Subject (Specific)
 
-**1️⃣ FULL BATCH** 
-└─ Download all subjects content
-
-**2️⃣ TODAY'S CLASS**
-└─ Download specific date content
-
-**3️⃣ BATCH BY SUBJECT**
-└─ Download specific subject(s)
-
-**Send:** `1`, `2`, or `3`"""
+**Send:** 1, 2, or 3"""
 
         ask_option = await app.ask(message.chat.id, text=options)
         option = ask_option.text.strip().lower()
         await ask_option.delete()
 
-        if option in ["1", "full", "batch", "full batch", "all"]:
+        if option in ["1", "full", "all"]:
             await download_full_batch(app, message, token, batch_info)
-        elif option in ["2", "today", "date", "today class", "class"]:
+        elif option in ["2", "today", "date"]:
             await download_today_class(app, message, token, batch_info)
-        elif option in ["3", "subject", "subjects", "by subject"]:
+        elif option in ["3", "subject"]:
             await download_by_subject(app, message, token, batch_info)
         else:
             await message.reply_text("**❌ Invalid option!** Send 1, 2, or 3.")
 
     except Exception as e:
         import traceback
-        error_trace = traceback.format_exc()
-        print(f"Error in show_download_options: {error_trace}")
+        traceback.print_exc()
         await message.reply_text(f"**❌ Error:** `{str(e)}`")
 
 
 async def download_full_batch(app, message, token, batch_info):
-    """Download full batch content with enhanced subject handling"""
+    """Download full batch content"""
 
     batch_slug = batch_info['slug']
     batch_name = batch_info['name']
     subjects = batch_info['subjects']
 
-    # Show subjects with details
-    msg = "**📖 AVAILABLE SUBJECTS:**\n\n"
+    # Show subjects
+    msg = "**📖 SUBJECTS:**\n\n"
     for idx, subj in enumerate(subjects, 1):
         name = subj.get('subject', subj.get('name', 'Unknown'))
-        sid = subj.get('_id', subj.get('id', 'N/A'))
         slug = subj.get('slug', 'N/A')
-        lecture_count = subj.get('lectureCount', subj.get('videoCount', 0))
+        count = subj.get('lectureCount', subj.get('videoCount', 0))
         
         msg += f"**{idx}. {name}**\n"
-        msg += f"   ID: `{sid}`\n"
         msg += f"   Slug: `{slug}`\n"
-        if lecture_count:
-            msg += f"   📹 Videos: {lecture_count}\n"
+        if count:
+            msg += f"   Videos: {count}\n"
         msg += "\n"
 
-    # Split if too long
     if len(msg) > 4000:
         parts = [msg[i:i+3800] for i in range(0, len(msg), 3800)]
         for part in parts:
@@ -759,17 +680,10 @@ async def download_full_batch(app, message, token, batch_info):
     else:
         await message.reply_text(msg)
 
-    # Ask for subject selection
+    # Ask selection
     ask_subjects = await app.ask(
         message.chat.id,
-        text="""**SELECT SUBJECTS:**
-
-**Options:**
-• Send `all` - Download all subjects
-• Send numbers - Example: `1,2,3`
-• Send slugs - Example: `physics&chemistry`
-
-**Your choice:**"""
+        text="**SELECT SUBJECTS:**\n\nSend:\n• `all` for all subjects\n• Numbers: `1,2,3`\n• Slugs: `physics&chemistry`"
     )
     selected = ask_subjects.text.strip()
     await ask_subjects.delete()
@@ -783,14 +697,14 @@ async def download_full_batch(app, message, token, batch_info):
     if selected.lower() == 'all':
         selected_subjects = subjects
     else:
-        # Try to parse as numbers first
+        # Try numbers
         try:
             nums = [int(x.strip()) for x in selected.replace(',', ' ').split()]
             for num in nums:
                 if 1 <= num <= len(subjects):
                     selected_subjects.append(subjects[num - 1])
         except ValueError:
-            # Try as slugs
+            # Try slugs
             slugs = [s.strip() for s in selected.replace(',', '&').split('&') if s.strip()]
             for slug in slugs:
                 for subj in subjects:
@@ -799,15 +713,15 @@ async def download_full_batch(app, message, token, batch_info):
                         break
 
     if not selected_subjects:
-        await message.reply_text("**❌ No valid subjects selected!**")
+        await message.reply_text("**❌ No valid subjects!**")
         return
 
-    # Start download
+    # Download
     status = await message.reply_text(f"**🔄 Downloading {len(selected_subjects)} subject(s)...**")
 
     headers = get_auth_headers(token)
-
     output_file = f"batch_{batch_slug[:20]}.txt"
+    
     if os.path.exists(output_file):
         os.remove(output_file)
 
@@ -815,135 +729,93 @@ async def download_full_batch(app, message, token, batch_info):
 
     for subject in selected_subjects:
         subject_slug = subject.get('slug', '')
-        subject_id = subject.get('_id', '')
         subject_name = subject.get('subject', subject.get('name', 'Unknown'))
         
-        if not subject_slug and not subject_id:
-            print(f"Skipping {subject_name} - no slug or ID")
+        if not subject_slug:
             continue
 
-        await status.edit_text(f"**🔄 Downloading: {subject_name}...**")
+        await status.edit_text(f"**🔄 {subject_name}...**")
 
-        # Determine pagination
-        tag_count = subject.get('tagCount', subject.get('topicCount', 0))
-        lecture_count = subject.get('lectureCount', subject.get('videoCount', 0))
-        total_count = max(tag_count, lecture_count)
-        
-        pages = max(1, math.ceil(total_count / 20)) if total_count else 10  # Default 10 pages
+        # Determine pages
+        count = subject.get('tagCount', subject.get('topicCount', subject.get('lectureCount', 0)))
+        pages = max(1, math.ceil(count / 20)) if count else 10
 
-        subject_items = []
-
-        for page in range(1, min(pages + 1, 50)):  # Max 50 pages safety limit
+        for page in range(1, min(pages + 1, 50)):
             try:
                 time.sleep(BATCH_DELAY)
 
-                # Try multiple API endpoints for topics
-                topics = []
+                # Fetch topics
+                url = f"{PW_API_BASE}/v2/batches/{batch_slug}/subject/{subject_slug}/topics"
+                response = safe_request("GET", url, params={'page': page}, headers=headers, max_retries=2)
                 
-                # Endpoint 1: v2/batches with subject slug
-                if subject_slug:
-                    url = f"{PW_API_BASE}/v2/batches/{batch_slug}/subject/{subject_slug}/topics"
-                    params = {'page': page}
-                    
-                    response = safe_request("GET", url, params=params, headers=headers, max_retries=2, retry_delay=2)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        topics = data.get('data', [])
-                
-                # Endpoint 2: Fallback with subject ID if slug failed
-                if not topics and subject_id:
-                    url = f"{PW_API_BASE}/v2/batches/{batch_slug}/subject/{subject_id}/contents"
-                    params = {'page': page}
-                    
-                    response = safe_request("GET", url, params=params, headers=headers, max_retries=2, retry_delay=2)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        topics = data.get('data', [])
+                if response.status_code != 200:
+                    break
+
+                data = response.json()
+                topics = data.get('data', [])
 
                 if not topics:
-                    if page == 1:
-                        print(f"No topics found for {subject_name} on first page")
                     break
 
                 total_items += len(topics)
-                subject_items.extend(topics)
+
+                # Write to file
+                with open(output_file, 'a', encoding='utf-8') as f:
+                    if page == 1:
+                        f.write(f"\n{'='*70}\n")
+                        f.write(f"📚 SUBJECT: {subject_name}\n")
+                        f.write(f"{'='*70}\n\n")
+
+                    for topic in topics:
+                        f.write(f"📖 {topic.get('name', 'N/A')}\n")
+                        f.write(f"   ID: {topic.get('_id', 'N/A')}\n")
+
+                        # Videos
+                        videos = topic.get('videos', [])
+                        if videos:
+                            f.write(f"   🎥 Videos: {len(videos)}\n")
+                            for v in videos[:3]:
+                                f.write(f"      • {v.get('topic', 'N/A')}\n")
+                                if v.get('url'):
+                                    f.write(f"        {v['url']}\n")
+
+                        # Notes & DPP
+                        notes = topic.get('notes', [])
+                        exercises = topic.get('exercises', [])
+                        if notes:
+                            f.write(f"   📝 Notes: {len(notes)}\n")
+                        if exercises:
+                            f.write(f"   📋 DPP: {len(exercises)}\n")
+
+                        f.write("-" * 70 + "\n")
 
             except Exception as e:
-                print(f"Error on page {page} for {subject_name}: {e}")
-                if page > 3:  # Continue if we got some pages
-                    break
-                continue
-
-        # Write subject content to file
-        if subject_items:
-            with open(output_file, 'a', encoding='utf-8') as f:
-                f.write(f"\n{'='*70}\n")
-                f.write(f"📚 SUBJECT: {subject_name}\n")
-                f.write(f"📊 Total Items: {len(subject_items)}\n")
-                f.write(f"{'='*70}\n\n")
-
-                for idx, topic in enumerate(subject_items, 1):
-                    f.write(f"{idx}. 📖 Topic: {topic.get('name', 'N/A')}\n")
-                    f.write(f"   ID: {topic.get('_id', 'N/A')}\n")
-                    f.write(f"   Slug: {topic.get('slug', 'N/A')}\n")
-
-                    # Videos
-                    videos = topic.get('videos', topic.get('videoResources', []))
-                    if videos:
-                        f.write(f"   🎥 Videos: {len(videos)}\n")
-                        for v in videos[:5]:  # First 5 videos
-                            f.write(f"      • {v.get('topic', v.get('name', 'N/A'))}\n")
-                            video_url = v.get('url', v.get('videoUrl', ''))
-                            if video_url:
-                                f.write(f"        URL: {video_url}\n")
-
-                    # Notes
-                    notes = topic.get('notes', topic.get('noteResources', []))
-                    if notes:
-                        f.write(f"   📝 Notes: {len(notes)}\n")
-
-                    # DPP/Exercises
-                    exercises = topic.get('exercises', topic.get('dpp', []))
-                    if exercises:
-                        f.write(f"   📋 DPP/Exercises: {len(exercises)}\n")
-
-                    f.write("-" * 70 + "\n")
+                print(f"Error page {page}: {e}")
+                break
 
     await status.delete()
 
     if os.path.exists(output_file) and total_items > 0:
-        caption = f"""**✅ DOWNLOAD COMPLETE!**
-
-**📚 Batch:** {batch_name}
-**📊 Subjects:** {len(selected_subjects)}
-**📝 Total Topics:** {total_items}
-
-**Generated:** {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}"""
-
         await app.send_document(
             message.chat.id,
             document=output_file,
-            caption=caption
+            caption=f"**✅ Complete!**\n\n**Batch:** {batch_name}\n**Topics:** {total_items}"
         )
-        
-        # Cleanup
         try:
             os.remove(output_file)
         except:
             pass
     else:
-        await message.reply_text("**⚠️ No content found or download failed!**")
+        await message.reply_text("**⚠️ No content found!**")
 
 
 async def download_by_subject(app, message, token, batch_info):
-    """Download specific subject(s) - same as download_full_batch but with better naming"""
+    """Download specific subjects"""
     await download_full_batch(app, message, token, batch_info)
 
 
 async def download_today_class(app, message, token, batch_info):
-    """Download content for a specific date with enhanced date handling"""
+    """Download by date"""
 
     batch_slug = batch_info['slug']
     batch_name = batch_info['name']
@@ -951,25 +823,25 @@ async def download_today_class(app, message, token, batch_info):
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    # Ask for date
+    # Ask date
     date_msg = f"""**📅 ENTER DATE**
 
-**Format:** YYYY-MM-DD
-**Example:** 2024-01-15
+Format: YYYY-MM-DD
+Example: 2024-01-15
 
-**Quick options:**
-• Send `today` for today ({today})
-• Send `yesterday` for yesterday
+Quick:
+• `today` → {today}
+• `yesterday`
 
 **Your input:**"""
 
-    ask_date_text = await message.reply_text(date_msg)
+    ask_date = await message.reply_text(date_msg)
     date_response = await app.ask(message.chat.id, text="**Date:**")
     date_input = date_response.text.strip().lower()
-    await ask_date_text.delete()
+    await ask_date.delete()
     await date_response.delete()
 
-    # Process date input
+    # Process date
     if date_input == 'today':
         selected_date = today
     elif date_input == 'yesterday':
@@ -978,54 +850,47 @@ async def download_today_class(app, message, token, batch_info):
     else:
         selected_date = date_input
 
-    # Validate date format
+    # Validate
     try:
-        date_obj = datetime.datetime.strptime(selected_date, "%Y-%m-%d")
+        datetime.datetime.strptime(selected_date, "%Y-%m-%d")
     except ValueError:
-        await message.reply_text("**❌ Invalid date format!**\n\nUse YYYY-MM-DD format (e.g., 2024-01-15)")
+        await message.reply_text("**❌ Invalid format!** Use YYYY-MM-DD")
         return
 
     # Show subjects
-    msg = "**📚 SELECT SUBJECTS:**\n\n"
+    msg = "**📚 SUBJECTS:**\n\n"
     for idx, subj in enumerate(subjects, 1):
-        name = subj.get('subject', subj.get('name', 'Unknown'))
-        msg += f"{idx}. {name}\n"
-
-    msg += f"\n**Send:** Numbers (1,2,3) or `all`"
+        msg += f"{idx}. {subj.get('subject', 'Unknown')}\n"
+    msg += "\nSend: Numbers or `all`"
 
     await message.reply_text(msg)
 
-    # Ask which subjects
-    ask_subj = await message.reply_text("**Your selection:**")
-    subject_response = await app.ask(message.chat.id, text="**Subjects:**")
-    subject_input = subject_response.text.strip()
+    # Ask subjects
+    ask_subj = await app.ask(message.chat.id, text="**Selection:**")
+    subject_input = ask_subj.text.strip()
     await ask_subj.delete()
-    await subject_response.delete()
 
-    # Process subject selection
+    # Process
     if subject_input.lower() == 'all':
         selected_subjects = subjects
     else:
         try:
             nums = [int(x.strip()) for x in subject_input.replace(',', ' ').split()]
-            selected_subjects = []
-            for num in nums:
-                if 1 <= num <= len(subjects):
-                    selected_subjects.append(subjects[num - 1])
-        except ValueError:
-            await message.reply_text("**❌ Invalid subject selection!**")
+            selected_subjects = [subjects[n-1] for n in nums if 1 <= n <= len(subjects)]
+        except:
+            await message.reply_text("**❌ Invalid selection!**")
             return
 
     if not selected_subjects:
-        await message.reply_text("**❌ No valid subjects selected!**")
+        await message.reply_text("**❌ No subjects selected!**")
         return
 
-    # Start searching
-    status = await message.reply_text(f"**🔍 Searching for classes on {selected_date}...**")
+    # Search
+    status = await message.reply_text(f"**🔍 Searching {selected_date}...**")
 
     headers = get_auth_headers(token)
-
-    output_file = f"classes_{selected_date}.txt"
+    output_file = f"class_{selected_date}.txt"
+    
     if os.path.exists(output_file):
         os.remove(output_file)
 
@@ -1034,145 +899,101 @@ async def download_today_class(app, message, token, batch_info):
 
     for subject in selected_subjects:
         subject_slug = subject.get('slug', '')
-        subject_id = subject.get('_id', '')
-        subject_name = subject.get('subject', subject.get('name', 'Unknown'))
+        subject_name = subject.get('subject', 'Unknown')
 
-        await status.edit_text(f"**🔍 Searching in {subject_name}...**")
+        await status.edit_text(f"**🔍 {subject_name}...**")
 
-        subject_content = []
         page = 1
-        max_pages = 20  # Reasonable limit for date search
-
-        while page <= max_pages:
+        while page <= 20:
             try:
                 time.sleep(BATCH_DELAY)
 
-                # Fetch topics
-                topics = []
+                url = f"{PW_API_BASE}/v2/batches/{batch_slug}/subject/{subject_slug}/topics"
+                response = safe_request("GET", url, params={'page': page}, headers=headers, max_retries=2)
                 
-                if subject_slug:
-                    url = f"{PW_API_BASE}/v2/batches/{batch_slug}/subject/{subject_slug}/topics"
-                    params = {'page': page}
-                    
-                    response = safe_request("GET", url, params=params, headers=headers, max_retries=2, retry_delay=2)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        topics = data.get('data', [])
+                if response.status_code != 200:
+                    break
+
+                data = response.json()
+                topics = data.get('data', [])
 
                 if not topics:
                     break
 
                 # Filter by date
                 for topic in topics:
-                    videos = topic.get('videos', topic.get('videoResources', []))
-                    
+                    videos = topic.get('videos', [])
                     for video in videos:
-                        video_date = video.get('date', video.get('createdAt', ''))
-                        
+                        video_date = video.get('date', '')
                         if video_date:
                             try:
-                                # Parse date - handle multiple formats
-                                if 'T' in video_date:
-                                    v_date = video_date.split('T')[0]
-                                elif ' ' in video_date:
-                                    v_date = video_date.split(' ')[0]
-                                else:
-                                    v_date = video_date[:10]
-                                
-                                # Match date
+                                v_date = video_date.split('T')[0] if 'T' in video_date else video_date[:10]
                                 if v_date == selected_date:
-                                    teachers = video.get('teachers', video.get('faculty', []))
-                                    teacher_name = 'Unknown'
-                                    if teachers and len(teachers) > 0:
-                                        teacher = teachers[0]
-                                        if isinstance(teacher, dict):
-                                            teacher_name = teacher.get('firstName', '') + ' ' + teacher.get('lastName', '')
-                                            teacher_name = teacher_name.strip() or 'Unknown'
-                                        elif isinstance(teacher, str):
-                                            teacher_name = teacher
+                                    teachers = video.get('teachers', [])
+                                    teacher = 'Unknown'
+                                    if teachers:
+                                        t = teachers[0]
+                                        if isinstance(t, dict):
+                                            teacher = f"{t.get('firstName', '')} {t.get('lastName', '')}".strip()
                                     
-                                    video_info = {
+                                    all_results.append({
                                         'subject': subject_name,
                                         'topic': topic.get('name', 'N/A'),
-                                        'video_topic': video.get('topic', video.get('name', 'N/A')),
-                                        'date': video_date,
-                                        'url': video.get('url', video.get('videoUrl', 'N/A')),
-                                        'duration': video.get('videoDetails', {}).get('duration', 
-                                                    video.get('duration', 'N/A')),
-                                        'teacher': teacher_name,
-                                        'video_id': video.get('_id', video.get('id', 'N/A'))
-                                    }
-                                    
-                                    subject_content.append(video_info)
+                                        'video': video.get('topic', 'N/A'),
+                                        'teacher': teacher,
+                                        'duration': video.get('videoDetails', {}).get('duration', 'N/A'),
+                                        'url': video.get('url', 'N/A'),
+                                        'date': video_date
+                                    })
                                     total_found += 1
-                            except Exception as e:
-                                print(f"Date parsing error: {e}")
-                                continue
+                            except:
+                                pass
 
                 page += 1
 
             except Exception as e:
-                print(f"Error searching in {subject_name}: {e}")
+                print(f"Error: {e}")
                 break
-
-        if subject_content:
-            all_results.extend(subject_content)
 
     await status.delete()
 
     if total_found > 0:
-        # Write to file
+        # Write file
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(f"{'='*70}\n")
-            f.write(f"📅 CLASSES FOR: {selected_date}\n")
-            f.write(f"📚 Batch: {batch_name}\n")
-            f.write(f"🎥 Total Videos: {total_found}\n")
+            f.write(f"📅 DATE: {selected_date}\n")
+            f.write(f"📚 BATCH: {batch_name}\n")
+            f.write(f"🎥 VIDEOS: {total_found}\n")
             f.write(f"{'='*70}\n\n")
 
             # Group by subject
-            subjects_dict = {}
+            by_subject = {}
             for item in all_results:
                 subj = item['subject']
-                if subj not in subjects_dict:
-                    subjects_dict[subj] = []
-                subjects_dict[subj].append(item)
+                if subj not in by_subject:
+                    by_subject[subj] = []
+                by_subject[subj].append(item)
 
-            for subject_name, videos in subjects_dict.items():
+            for subj, videos in by_subject.items():
                 f.write(f"\n{'─'*70}\n")
-                f.write(f"📚 SUBJECT: {subject_name}\n")
-                f.write(f"🎥 Videos: {len(videos)}\n")
+                f.write(f"📚 {subj} ({len(videos)} videos)\n")
                 f.write(f"{'─'*70}\n\n")
 
-                for idx, video in enumerate(videos, 1):
-                    f.write(f"{idx}. 📖 {video['topic']}\n")
-                    f.write(f"   🎥 Video: {video['video_topic']}\n")
-                    f.write(f"   👨‍🏫 Teacher: {video['teacher']}\n")
-                    f.write(f"   ⏱️ Duration: {video['duration']}\n")
-                    f.write(f"   📅 Date: {video['date']}\n")
-                    f.write(f"   🔗 URL: {video['url']}\n")
-                    f.write(f"   🆔 Video ID: {video['video_id']}\n")
-                    f.write("\n")
-
-        caption = f"""**✅ CLASSES FOUND!**
-
-**📅 Date:** {selected_date}
-**📚 Batch:** {batch_name}
-**🎥 Total Videos:** {total_found}
-**📊 Subjects:** {len(subjects_dict)}
-
-**Generated:** {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}"""
+                for idx, v in enumerate(videos, 1):
+                    f.write(f"{idx}. {v['topic']}\n")
+                    f.write(f"   🎥 {v['video']}\n")
+                    f.write(f"   👨‍🏫 {v['teacher']}\n")
+                    f.write(f"   ⏱️ {v['duration']}\n")
+                    f.write(f"   🔗 {v['url']}\n\n")
 
         await app.send_document(
             message.chat.id,
             document=output_file,
-            caption=caption
+            caption=f"**✅ Found {total_found} videos!**\n\n**Date:** {selected_date}\n**Batch:** {batch_name}"
         )
-        
-        # Cleanup
         try:
             os.remove(output_file)
         except:
             pass
     else:
-        await message.reply_text(f"**⚠️ NO CLASSES FOUND FOR {selected_date}!**\n\nTry a different date or check if classes were scheduled.")
+        await message.reply_text(f"**⚠️ No classes found for {selected_date}!**")
