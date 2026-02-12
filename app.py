@@ -1,35 +1,29 @@
-from flask import Flask
 import os
 import threading
-import asyncio
-import sys
+from flask import Flask
+from pyrogram import Client, idle
 
-# Add current directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+API_ID = int(os.environ.get("API_ID"))
+API_HASH = os.environ.get("API_HASH")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Bot is running 🚀"
+    return "Bot is running successfully 🚀"
 
 def run_bot():
-    """Run the bot in the same process"""
-    try:
-        from Extractor.__main__ import sumit_boot
-        import asyncio
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(sumit_boot())
-    except Exception as e:
-        print(f"Bot error: {e}")
+    bot = Client(
+        "ExtractorBot",
+        api_id=API_ID,
+        api_hash=API_HASH,
+        bot_token=BOT_TOKEN
+    )
+    bot.start()
+    idle()
 
 if __name__ == "__main__":
-    # Start bot in background thread
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    
-    # Start Flask web server
+    threading.Thread(target=run_bot).start()
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, threaded=True)
+    app.run(host="0.0.0.0", port=port)
