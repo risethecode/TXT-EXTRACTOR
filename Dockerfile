@@ -35,4 +35,4 @@ COPY . /EXTRACTOR
 RUN chmod +x start.sh
 
 # Running Bot
-CMD ["bash", "start.sh"]
+CMD ["python", "app.py"]
